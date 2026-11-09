@@ -1,0 +1,3 @@
+.venv
+asteroids/__pycache__
+asteroids/game_state.jsonl
