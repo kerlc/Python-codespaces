@@ -2,7 +2,6 @@ import csv
 import os
 import pygame
 
-from ai_actions import choose_simple_action
 from ai_actions import SimpleAI
 from game import CoinRush
 from game import MAX_STEPS
@@ -37,7 +36,7 @@ def main():
         done = False
 
         while not done and game.step_count < MAX_STEPS:
-            action = choose_simple_action(state)
+            action = ai.choose_action(state)
             next_state, reward, done = game.step(action)
 
             state = next_state

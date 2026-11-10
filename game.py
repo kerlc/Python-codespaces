@@ -4,7 +4,7 @@ import time
 
 import pygame
 
-from ai_actions import choose_simple_action
+from ai_actions import SimpleAI
 
 WIDTH, HEIGHT = 800, 600
 FPS = 60
@@ -322,6 +322,7 @@ def main():
     font = pygame.font.SysFont("arial", 20)
     big_font = pygame.font.SysFont("arial", 52, bold=True)
     game = CoinRush()
+    ai = SimpleAI()
 
     while True:
         dt = min(clock.tick(FPS) / 1000, 0.05)
@@ -339,7 +340,7 @@ def main():
 
         state = game.get_state()
         # action = get_keyboard_action() # Use keyboard input
-        action = choose_simple_action(state) # Use ai input
+        action = ai.choose_action(state) # Use ai input
         game.update(dt, action)
         game.draw(screen, font, big_font)
         pygame.display.flip()
