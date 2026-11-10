@@ -11,7 +11,7 @@ Min reward: MAX_STEPS * -0.01 - 10 (Max steps reached)
 Max reward: 250 - time ???
 """
 
-EPISODES = 10
+EPISODES = 1
 RESULTS_FILE = "ai_results.csv"
 
 def save_episode_result(steps, finished, total_reward):
@@ -39,6 +39,9 @@ def main():
             next_state, reward, done = game.step(action)
 
             state = next_state
+
+            if game.step_count % 25 == 0:
+                print("state: ", state)
 
         save_episode_result(
             steps=game.step_count,

@@ -17,6 +17,7 @@ MAX_STEPS = 1000
 BACKGROUND = (35, 40, 50)
 PLAYER_COLOR = (70, 170, 255)
 COIN_COLOR = (245, 205, 45)
+WALL_COLOR = (90, 95, 105)
 FINISH_LOCKED = (110, 110, 110)
 FINISH_OPEN = (70, 200, 100)
 WHITE = (245, 245, 245)
@@ -26,12 +27,25 @@ class CoinRush:
     def __init__(self):
         self.player = pygame.Rect(55, HEIGHT // 2 - 16, 32, 32)
         self.finish = pygame.Rect(WIDTH - 100, HEIGHT // 2 - 55, 55, 110)
+        self.walls = self.create_walls()
         self.coins = self.create_coins()
         self.start_time = time.perf_counter()
         self.step_count = 0
         self.total_reward = 0.0
         self.finish_time = None
         self.finished = False
+
+    def create_walls(self):
+        return [
+            pygame.Rect(180, 70, 28, 190), # pygame.Rect(x, y, width, height)
+            pygame.Rect(180, 350, 28, 180),
+
+            pygame.Rect(380, 0, 28, 190),
+            pygame.Rect(380, 290, 28, 240),
+
+            pygame.Rect(580, 70, 28, 190),
+            pygame.Rect(580, 350, 28, 180),
+        ]
 
     def create_coins(self):
         coins = []
@@ -46,6 +60,8 @@ class CoinRush:
                 continue
             if coin.colliderect(self.finish.inflate(50, 20)):
                 continue
+            if any(coin.colliderect(wall) for wall in self.walls):
+                continue
             if any(coin.colliderect(other.inflate(25, 25)) for other in coins):
                 continue
             coins.append(coin)
@@ -53,6 +69,57 @@ class CoinRush:
 
     def reset(self):
         self.__init__()
+
+    def get_wall_distances(self):
+        directions = [
+            pygame.Vector2(0, -1),  # Up
+            pygame.Vector2(0, 1),   # Down
+            pygame.Vector2(-1, 0),  # Left
+            pygame.Vector2(1, 0),   # Right
+        ]
+
+        distances = []
+        
+        max_distance = max(WIDTH, HEIGHT)
+        step_size = 4
+
+        expanded_walls = [
+            wall.inflate(self.player.width, self.player.height) for wall in self.walls
+        ]
+
+        for direction in directions:
+            distance = 0
+
+            while distance < max_distance:
+                distance += step_size
+
+                test_position = pygame.Vector2(self.player.center)
+                test_position += direction * distance
+
+                test_rect = pygame.Rect(
+                    0,
+                    0,
+                    self.player.width,
+                    self.player.height,
+                )
+                test_rect.center = test_position
+
+                outside_screen = not pygame.Rect(
+                    0,
+                    0,
+                    WIDTH,
+                    HEIGHT,
+                ).contains(test_rect)
+
+                hits_wall = any(
+                    test_rect.colliderect(wall) for wall in self.walls
+                )
+
+                if outside_screen or hits_wall:
+                    break
+            distances.append(distance / max_distance)
+
+        return distances
 
     def get_state(self):
         player_x = self.player.centerx / WIDTH
@@ -77,6 +144,9 @@ class CoinRush:
 
         coins_remaining = len(self.coins) / COIN_COUNT
 
+        wall_up, wall_down, wall_left, wall_right =(
+            self.get_wall_distances()
+        )
         return [
             player_x,
             player_y,
@@ -85,6 +155,10 @@ class CoinRush:
             finish_dx,
             finish_dy,
             coins_remaining,
+            wall_up,
+            wall_down,
+            wall_left,
+            wall_right,
         ]
 
     def get_direction_from_action(self, action):
@@ -154,6 +228,31 @@ class CoinRush:
         self.total_reward += reward
         return self.get_state(), reward, done
 
+    def move_player(self, direction, dt):
+        horizontal_distance = round(direction.x * PLAYER_SPEED * dt)
+        vertical_distance = round(direction.y * PLAYER_SPEED * dt)
+
+        self.player.x += horizontal_distance
+
+        for wall in self.walls:
+            if self.player.colliderect(wall):
+                if horizontal_distance > 0:
+                    self.player.right = wall.left
+                elif horizontal_distance < 0:
+                    self.player.left = wall.right
+
+        self.player.y += vertical_distance
+
+        for wall in self.walls:
+            if self.player.colliderect(wall):
+                if vertical_distance > 0:
+                    self.player.bottom = wall.top
+                elif vertical_distance < 0:
+                    self.player.top = wall.bottom
+
+        self.player.clamp_ip(pygame.Rect(0, 0, WIDTH, HEIGHT))
+
+
     def update(self, dt, action=None):
         if self.finished:
             return
@@ -165,9 +264,7 @@ class CoinRush:
         if direction.length_squared():
             direction = direction.normalize()
 
-        self.player.x += round(direction.x * PLAYER_SPEED * dt)
-        self.player.y += round(direction.y * PLAYER_SPEED * dt)
-        self.player.clamp_ip(pygame.Rect(0, 0, WIDTH, HEIGHT))
+        self.move_player(direction, dt)
 
         self.coins = [coin for coin in self.coins if not self.player.colliderect(coin)]
 
@@ -177,6 +274,9 @@ class CoinRush:
 
     def draw(self, screen, font, big_font):
         screen.fill(BACKGROUND)
+
+        for wall in self.walls:
+            pygame.draw.rect(screen, WALL_COLOR, wall)
 
         finish_color = FINISH_OPEN if not self.coins else FINISH_LOCKED
         pygame.draw.rect(screen, finish_color, self.finish, border_radius=8)
