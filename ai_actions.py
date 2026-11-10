@@ -34,12 +34,12 @@ def choose_simple_action(state):
     finish_dy = state[5]
     coins_remaining = state[6]
 
-        if coins_remaining > 0:
-            target_dx = coin_dx
-            target_dy = coin_dy
-        else:
-            target_dx = finish_dx
-            target_dy = finish_dy
+    if coins_remaining > 0:
+        target_dx = coin_dx
+        target_dy = coin_dy
+    else:
+        target_dx = finish_dx
+        target_dy = finish_dy
 
     # Convert the target direction into an action number.
     horizontal = 0
