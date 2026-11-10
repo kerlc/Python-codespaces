@@ -4,15 +4,14 @@ import time
 
 import pygame
 
-from human_actions import get_keyboard_action
-from ai_actions import choose_random_action
+from ai_actions import choose_simple_action
 
 WIDTH, HEIGHT = 800, 600
 FPS = 60
 PLAYER_SPEED = 260
 COIN_COUNT = 15
 
-MAX_STEPS = 1000
+MAX_STEPS = 100
 
 BACKGROUND = (35, 40, 50)
 PLAYER_COLOR = (70, 170, 255)
@@ -339,8 +338,8 @@ def main():
                     game.reset()
 
         state = game.get_state()
-        action = get_keyboard_action() # Use keyboard input
-        # action = choose_random_action(state) # Use ai input
+        # action = get_keyboard_action() # Use keyboard input
+        action = choose_simple_action(state) # Use ai input
         game.update(dt, action)
         game.draw(screen, font, big_font)
         pygame.display.flip()

@@ -3,6 +3,7 @@ import os
 import pygame
 
 from ai_actions import choose_simple_action
+from ai_actions import SimpleAI
 from game import CoinRush
 from game import MAX_STEPS
 
@@ -30,6 +31,7 @@ def main():
     pygame.init()
     for episode in range(EPISODES):
         game = CoinRush()
+        ai = SimpleAI
         state = game.get_state()
 
         done = False
@@ -40,8 +42,14 @@ def main():
 
             state = next_state
 
-            if game.step_count % 25 == 0:
-                print("state: ", state)
+            if game.step_count % 10 == 0:
+                print(
+                    game.step_count,
+                    "action:", action,
+                    "position:", state[0:2],
+                    "walls:", state[7:11],
+                    len(game.coins)
+                )
 
         save_episode_result(
             steps=game.step_count,
