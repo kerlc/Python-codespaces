@@ -1,0 +1,350 @@
+import random
+import sys
+import time
+
+import pygame
+
+from ai_actions import SimpleAI
+
+WIDTH, HEIGHT = 800, 600
+FPS = 60
+PLAYER_SPEED = 260
+COIN_COUNT = 15
+
+MAX_STEPS = 100
+
+BACKGROUND = (35, 40, 50)
+PLAYER_COLOR = (70, 170, 255)
+COIN_COLOR = (245, 205, 45)
+WALL_COLOR = (90, 95, 105)
+FINISH_LOCKED = (110, 110, 110)
+FINISH_OPEN = (70, 200, 100)
+WHITE = (245, 245, 245)
+
+
+class CoinRush:
+    def __init__(self):
+        self.player = pygame.Rect(55, HEIGHT // 2 - 16, 32, 32)
+        self.finish = pygame.Rect(WIDTH - 100, HEIGHT // 2 - 55, 55, 110)
+        self.walls = self.create_walls()
+        self.coins = self.create_coins()
+        self.start_time = time.perf_counter()
+        self.step_count = 0
+        self.total_reward = 0.0
+        self.finish_time = None
+        self.finished = False
+
+    def create_walls(self):
+        return [
+            pygame.Rect(180, 70, 28, 190), # pygame.Rect(x, y, width, height)
+            pygame.Rect(180, 350, 28, 180),
+
+            pygame.Rect(380, 0, 28, 190),
+            pygame.Rect(380, 290, 28, 240),
+
+            pygame.Rect(580, 70, 28, 190),
+            pygame.Rect(580, 350, 28, 180),
+        ]
+
+    def create_coins(self):
+        coins = []
+        while len(coins) < COIN_COUNT:
+            coin = pygame.Rect(
+                random.randint(120, WIDTH - 170),
+                random.randint(50, HEIGHT - 70),
+                18,
+                18,
+            )
+            if coin.colliderect(self.player.inflate(80, 80)):
+                continue
+            if coin.colliderect(self.finish.inflate(50, 20)):
+                continue
+            if any(coin.colliderect(wall) for wall in self.walls):
+                continue
+            if any(coin.colliderect(other.inflate(25, 25)) for other in coins):
+                continue
+            coins.append(coin)
+        return coins
+
+    def reset(self):
+        self.__init__()
+
+    def get_wall_distances(self):
+        directions = [
+            pygame.Vector2(0, -1),  # Up
+            pygame.Vector2(0, 1),   # Down
+            pygame.Vector2(-1, 0),  # Left
+            pygame.Vector2(1, 0),   # Right
+        ]
+
+        distances = []
+        
+        max_distance = max(WIDTH, HEIGHT)
+        step_size = 4
+
+        expanded_walls = [
+            wall.inflate(self.player.width, self.player.height) for wall in self.walls
+        ]
+
+        for direction in directions:
+            distance = 0
+
+            while distance < max_distance:
+                distance += step_size
+
+                test_position = pygame.Vector2(self.player.center)
+                test_position += direction * distance
+
+                test_rect = pygame.Rect(
+                    0,
+                    0,
+                    self.player.width,
+                    self.player.height,
+                )
+                test_rect.center = test_position
+
+                outside_screen = not pygame.Rect(
+                    0,
+                    0,
+                    WIDTH,
+                    HEIGHT,
+                ).contains(test_rect)
+
+                hits_wall = any(
+                    test_rect.colliderect(wall) for wall in self.walls
+                )
+
+                if outside_screen or hits_wall:
+                    break
+            distances.append(distance / max_distance)
+
+        return distances
+
+    def get_state(self):
+        player_x = self.player.centerx / WIDTH
+        player_y = self.player.centery / HEIGHT
+
+        finish_dx = (self.finish.centerx - self.player.centerx) / WIDTH
+        finish_dy = (self.finish.centery - self.player.centery) / HEIGHT
+
+        if self.coins:
+            nearest_coin = min(
+                self.coins,
+                key=lambda coin: pygame.Vector2(self.player.center).distance_to(
+                    coin.center
+                ),
+            )
+
+            coin_dx = (nearest_coin.centerx - self.player.centerx) / WIDTH
+            coin_dy = (nearest_coin.centery - self.player.centery) / HEIGHT
+        else:
+            coin_dx = 0
+            coin_dy = 0
+
+        coins_remaining = len(self.coins) / COIN_COUNT
+
+        wall_up, wall_down, wall_left, wall_right =(
+            self.get_wall_distances()
+        )
+        return [
+            player_x,
+            player_y,
+            coin_dx,
+            coin_dy,
+            finish_dx,
+            finish_dy,
+            coins_remaining,
+            wall_up,
+            wall_down,
+            wall_left,
+            wall_right,
+        ]
+
+    def get_direction_from_action(self, action):
+        """
+    Convert an action number into a movement direction.
+
+    Actions:
+        0 = no movement
+        1 = up
+        2 = down
+        3 = left
+        4 = right
+        5 = up-left
+        6 = up-right
+        7 = down-left
+        8 = down-right
+    """
+        directions = {
+            0: pygame.Vector2(0, 0),
+            1: pygame.Vector2(0, -1),
+            2: pygame.Vector2(0, 1),
+            3: pygame.Vector2(-1, 0),
+            4: pygame.Vector2(1, 0),
+            5: pygame.Vector2(-1, -1),
+            6: pygame.Vector2(1, -1),
+            7: pygame.Vector2(-1, 1),
+            8: pygame.Vector2(1, 1),
+        }
+
+        return directions.get(action, pygame.Vector2(0, 0))  # Default to no movement
+
+    def step(self, action):
+        """
+        Advance the game by one fixed simulation step.
+
+        The AI gives us an action number. We update the game,
+        then return information about what happened.
+        """
+        # A fixed timestep makes training predictable.
+        dt = 1 / FPS
+
+        coins_before = len(self.coins)
+
+        # Send the action to the movement system.
+        self.update(dt, action)
+
+        coins_collected = coins_before - len(self.coins)
+
+        # Small penalty for taking time.
+        reward = -0.01
+
+        # Reward the AI for collecting coins.
+        reward += coins_collected * 10
+
+        # Check whether the player finished.
+        done = False
+
+        if self.step_count >= MAX_STEPS - 1:
+            reward -= 10
+            done = True
+
+        if not self.coins and self.player.colliderect(self.finish):
+            reward += 100
+            done = True
+
+        self.step_count += 1
+        self.total_reward += reward
+        return self.get_state(), reward, done
+
+    def move_player(self, direction, dt):
+        horizontal_distance = round(direction.x * PLAYER_SPEED * dt)
+        vertical_distance = round(direction.y * PLAYER_SPEED * dt)
+
+        self.player.x += horizontal_distance
+
+        for wall in self.walls:
+            if self.player.colliderect(wall):
+                if horizontal_distance > 0:
+                    self.player.right = wall.left
+                elif horizontal_distance < 0:
+                    self.player.left = wall.right
+
+        self.player.y += vertical_distance
+
+        for wall in self.walls:
+            if self.player.colliderect(wall):
+                if vertical_distance > 0:
+                    self.player.bottom = wall.top
+                elif vertical_distance < 0:
+                    self.player.top = wall.bottom
+
+        self.player.clamp_ip(pygame.Rect(0, 0, WIDTH, HEIGHT))
+
+
+    def update(self, dt, action=None):
+        if self.finished:
+            return
+        if action is None:
+            direction = pygame.Vector2(0, 0)
+        else:
+            direction = self.get_direction_from_action(action)
+        
+        if direction.length_squared():
+            direction = direction.normalize()
+
+        self.move_player(direction, dt)
+
+        self.coins = [coin for coin in self.coins if not self.player.colliderect(coin)]
+
+        if not self.coins and self.player.colliderect(self.finish):
+            self.finish_time = time.perf_counter() - self.start_time
+            self.finished = True
+
+    def draw(self, screen, font, big_font):
+        screen.fill(BACKGROUND)
+
+        for wall in self.walls:
+            pygame.draw.rect(screen, WALL_COLOR, wall)
+
+        finish_color = FINISH_OPEN if not self.coins else FINISH_LOCKED
+        pygame.draw.rect(screen, finish_color, self.finish, border_radius=8)
+        finish_text = "FINISH" if not self.coins else "LOCKED"
+        text = font.render(finish_text, True, (10, 30, 15) if not self.coins else WHITE)
+        screen.blit(text, text.get_rect(center=self.finish.center))
+
+        for coin in self.coins:
+            pygame.draw.circle(screen, COIN_COLOR, coin.center, 10)
+            pygame.draw.circle(screen, (255, 240, 130), coin.center, 5, 2)
+
+        pygame.draw.rect(screen, PLAYER_COLOR, self.player, border_radius=6)
+        pygame.draw.circle(screen, WHITE, self.player.center, 5)
+
+        elapsed = self.finish_time if self.finished else time.perf_counter() - self.start_time
+        hud = font.render(
+            f"Coins: {COIN_COUNT - len(self.coins)}/{COIN_COUNT}    Time: {elapsed:.2f}s",
+            True,
+            WHITE,
+        )
+        screen.blit(hud, (20, 20))
+        instructions = font.render("WASD / arrows: move    Collect all coins, then reach FINISH", True, WHITE)
+        screen.blit(instructions, (20, HEIGHT - 38))
+
+        if self.finished:
+            overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+            overlay.fill((0, 0, 0, 165))
+            screen.blit(overlay, (0, 0))
+            title = big_font.render("FINISHED!", True, WHITE)
+            screen.blit(title, title.get_rect(center=(WIDTH // 2, HEIGHT // 2 - 35)))
+            result = font.render(
+                f"Your time: {self.finish_time:.2f}s    Press R to try again",
+                True,
+                WHITE,
+            )
+            screen.blit(result, result.get_rect(center=(WIDTH // 2, HEIGHT // 2 + 35)))
+
+
+def main():
+    pygame.init()
+    screen = pygame.display.set_mode((WIDTH, HEIGHT))
+    pygame.display.set_caption("Coin Rush")
+    clock = pygame.time.Clock()
+    font = pygame.font.SysFont("arial", 20)
+    big_font = pygame.font.SysFont("arial", 52, bold=True)
+    game = CoinRush()
+    ai = SimpleAI()
+
+    while True:
+        dt = min(clock.tick(FPS) / 1000, 0.05)
+
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit()
+                sys.exit()
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_ESCAPE:
+                    pygame.quit()
+                    sys.exit()
+                if event.key == pygame.K_r:
+                    game.reset()
+
+        state = game.get_state()
+        # action = get_keyboard_action() # Use keyboard input
+        action = ai.choose_action(state) # Use ai input
+        game.update(dt, action)
+        game.draw(screen, font, big_font)
+        pygame.display.flip()
+
+
+if __name__ == "__main__":
+    main()
